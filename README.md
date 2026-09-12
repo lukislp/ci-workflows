@@ -21,6 +21,7 @@ secret for the lock-file refresh (Dependabot-triggered `pull_request` runs only 
 |---|---|
 | `.github/actions/deploy-key-push` | Switch `origin` to SSH with the release deploy key so the following push bypasses the branch ruleset (semantic-release commits, image-tag bumps). |
 | `.github/actions/nuget-severity-gate` | `dotnet list package --vulnerable` for a solution, JSON report as artifact, fails on High/Critical (configurable; tolerated packages or advisory ids via `allow` / `allow-advisories`, each justified in the caller). |
+| `.github/actions/semantic-release` | Runs semantic-release from a pinned, Dependabot-maintained toolchain (semantic-release + changelog/git/github/exec plugins, lock file in the action directory) with the outputs of the marketplace action (`new_release_published` / `new_release_version` / `new_release_git_tag`); `dry-run: true` for the version-only pass. The `.releaserc.json` stays in the caller. |
 
 ## Templates (copied, not called)
 
@@ -42,6 +43,14 @@ jobs:
       - uses: lukislp/ci-workflows/.github/actions/deploy-key-push@<sha> # v1.0.0
         with:
           deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
+```
+
+```yaml
+      - id: semrel
+        uses: lukislp/ci-workflows/.github/actions/semantic-release@<sha> # v1.2.0
+        with:
+          dry-run: true # omit for the real release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 Releases are tagged `vX.Y.Z`; the `# vX.Y.Z` comment next to the SHA is what Dependabot updates.
