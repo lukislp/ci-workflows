@@ -1,0 +1,72 @@
+name: NuGet vulnerability gate
+description: >-
+  Lists every known-vulnerable NuGet package of a solution (direct and transitive) via
+  `dotnet list package --vulnerable`, uploads the JSON report and fails when a finding of the
+  configured severities is present. Run after `dotnet restore`.
+
+inputs:
+  solution:
+    description: Path to the .sln/.slnx (or a project) to inspect.
+    required: true
+  fail-on:
+    description: Comma-separated severities that fail the build.
+    required: false
+    default: "High,Critical"
+  allow:
+    description: >-
+      Comma-separated package ids whose advisories are tolerated (each must be justified in the
+      calling workflow's comment) - they are reported but do not fail the gate.
+    required: false
+    default: ""
+  artifact-name:
+    description: Name of the uploaded JSON report artifact.
+    required: false
+    default: nuget-vulnerabilities
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SOLUTION: ${{ inputs.solution }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        ALLOW: ${{ inputs.allow }}
+      run: |
+        dotnet list "$SOLUTION" package --vulnerable --include-transitive --format json > nuget-vulnerabilities.json
+        cat nuget-vulnerabilities.json
+        python3 - <<'EOF'
+        import json, os, sys
+
+        fail_on = {s.strip() for s in os.environ["FAIL_ON"].split(",") if s.strip()}
+        allow = {s.strip().lower() for s in os.environ["ALLOW"].split(",") if s.strip()}
+        data = json.load(open("nuget-vulnerabilities.json"))
+
+        findings = []  # (package id, severity)
+        for project in data.get("projects", []):
+            for framework in project.get("frameworks", []):
+                for kind in ("topLevelPackages", "transitivePackages"):
+                    for package in framework.get(kind, []):
+                        for vuln in package.get("vulnerabilities", []):
+                            findings.append((package["id"], vuln.get("severity", "")))
+
+        blocking = sorted({(pkg, sev) for pkg, sev in findings if sev in fail_on and pkg.lower() not in allow})
+        tolerated = sorted({(pkg, sev) for pkg, sev in findings if sev in fail_on and pkg.lower() in allow})
+        other = sorted({(pkg, sev) for pkg, sev in findings if sev not in fail_on})
+
+        for pkg, sev in tolerated:
+            print(f"::warning::{pkg}: {sev} advisory tolerated via the allow list")
+        for pkg, sev in other:
+            print(f"{pkg}: {sev} advisory (below the gate)")
+        if blocking:
+            for pkg, sev in blocking:
+                print(f"::error::{pkg}: {sev} severity vulnerability")
+            sys.exit(1)
+        if not findings:
+            print("No known vulnerable NuGet packages found.")
+        EOF
+    - if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: nuget-vulnerabilities.json
+        retention-days: 7

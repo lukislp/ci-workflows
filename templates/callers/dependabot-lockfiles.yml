@@ -1,0 +1,21 @@
+name: Dependabot lock files
+
+# Thin caller of the shared implementation in lukislp/ci-workflows. Plain pull_request on
+# purpose (never pull_request_target); AUTOMERGE_TOKEN must be stored as a DEPENDABOT secret.
+# Set only the tool the repo uses: dotnet-version for NuGet packages.lock.json files,
+# uv-version (matching the CI pin) for uv.lock.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  lockfiles:
+    uses: lukislp/ci-workflows/.github/workflows/dependabot-lockfiles.yml@SHA # vX.Y.Z
+    with:
+      dotnet-version: "10.0.x"
+      # uv-version: "0.5.8"
+    secrets:
+      AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}

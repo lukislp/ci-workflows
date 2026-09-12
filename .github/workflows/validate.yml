@@ -1,0 +1,53 @@
+name: Validate
+
+# Every workflow and composite action in this repo is consumed by other repositories, so a
+# broken file here breaks their pipelines: parse everything, check the job graphs and make
+# sure every `uses:` is pinned to a full commit SHA.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          python3 - <<'EOF'
+          import pathlib, re, sys, yaml
+
+          failed = False
+          files = sorted(pathlib.Path(".github").rglob("*.yml")) + sorted(pathlib.Path("templates").rglob("*.yml"))
+          for path in files:
+              text = path.read_text(encoding="utf-8")
+              try:
+                  doc = yaml.safe_load(text)
+              except Exception as exc:  # noqa: BLE001
+                  print(f"::error file={path}::{exc}")
+                  failed = True
+                  continue
+              for line_no, line in enumerate(text.splitlines(), 1):
+                  m = re.search(r"uses:\s*([^\s#]+)", line)
+                  if not m or m.group(1).startswith("./"):
+                      continue
+                  ref = m.group(1).split("@")[-1]
+                  if not re.fullmatch(r"[0-9a-f]{40}", ref):
+                      print(f"::error file={path},line={line_no}::'{m.group(1)}' is not pinned to a commit SHA")
+                      failed = True
+              jobs = (doc or {}).get("jobs") or {}
+              for name, job in jobs.items():
+                  for need in job.get("needs") or []:
+                      if need not in jobs:
+                          print(f"::error file={path}::job '{name}' needs unknown job '{need}'")
+                          failed = True
+              print(f"{path}: ok")
+          sys.exit(1 if failed else 0)
+          EOF
