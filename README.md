@@ -20,7 +20,7 @@ secret for the lock-file refresh (Dependabot-triggered `pull_request` runs only 
 | Action | Use |
 |---|---|
 | `.github/actions/deploy-key-push` | Switch `origin` to SSH with the release deploy key so the following push bypasses the branch ruleset (semantic-release commits, image-tag bumps). |
-| `.github/actions/nuget-severity-gate` | `dotnet list package --vulnerable` for a solution, JSON report as artifact, fails on High/Critical (configurable, with a justified allow list). |
+| `.github/actions/nuget-severity-gate` | `dotnet list package --vulnerable` for a solution, JSON report as artifact, fails on High/Critical (configurable; tolerated packages or advisory ids via `allow` / `allow-advisories`, each justified in the caller). |
 
 ## Templates (copied, not called)
 
