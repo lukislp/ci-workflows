@@ -1,0 +1,75 @@
+name: semantic-release
+description: >-
+  Runs semantic-release from a pinned toolchain (semantic-release plus the changelog, git,
+  github and exec plugins; exact versions in this action's package-lock.json, moved by
+  Dependabot) instead of installing them from the npm registry on every run. Exposes the same
+  outputs as the marketplace action it replaces (new_release_published, new_release_version,
+  new_release_git_tag), so callers keep their `steps.<id>.outputs.*` expressions. The release
+  configuration itself stays in the calling repository (.releaserc.json); the tag output assumes
+  the default `v${version}` tag format.
+
+inputs:
+  github-token:
+    description: Token semantic-release publishes with (pass the GITHUB_TOKEN secret).
+    required: true
+  dry-run:
+    description: >-
+      "true" runs `semantic-release --dry-run`: computes the next version without tagging,
+      publishing or pushing (verifyConditions still runs, so a configured deploy key is used).
+    required: false
+    default: "false"
+  node-version:
+    description: Node.js version semantic-release runs on.
+    required: false
+    default: "24"
+
+outputs:
+  new_release_published:
+    description: '"true" when semantic-release found (dry run) or published a new release.'
+    value: ${{ steps.run.outputs.new_release_published }}
+  new_release_version:
+    description: The new version (e.g. 1.4.0), empty when nothing is released.
+    value: ${{ steps.run.outputs.new_release_version }}
+  new_release_git_tag:
+    description: The git tag of the new version (v1.4.0), empty when nothing is released.
+    value: ${{ steps.run.outputs.new_release_git_tag }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+    # Installed into the action's own directory, not the caller's workspace: the calling repo
+    # needs no package.json, and its working tree stays clean for @semantic-release/git.
+    - shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --no-audit --no-fund
+    - id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        SEMANTIC_RELEASE: ${{ github.action_path }}/node_modules/.bin/semantic-release
+      run: |
+        set -o pipefail
+        args=()
+        if [ "$DRY_RUN" = "true" ]; then
+          args+=(--dry-run)
+        fi
+        log="$RUNNER_TEMP/semantic-release.log"
+        # semantic-release exits 0 when there is nothing to release; any other failure (push
+        # race, registry, config) propagates so the caller's retry/diagnose steps see it.
+        "$SEMANTIC_RELEASE" "${args[@]}" 2>&1 | tee "$log"
+        version="$(grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' "$log" | tail -1 | awk '{print $NF}' || true)"
+        if [ -n "$version" ]; then
+          echo "new_release_published=true" >> "$GITHUB_OUTPUT"
+          echo "new_release_version=$version" >> "$GITHUB_OUTPUT"
+          echo "new_release_git_tag=v$version" >> "$GITHUB_OUTPUT"
+        else
+          echo "new_release_published=false" >> "$GITHUB_OUTPUT"
+          echo "new_release_version=" >> "$GITHUB_OUTPUT"
+          echo "new_release_git_tag=" >> "$GITHUB_OUTPUT"
+        fi

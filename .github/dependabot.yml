@@ -1,9 +1,21 @@
-# Keeps the SHA pins of the actions used by the shared workflows and composite actions moving.
+# Keeps the SHA pins of the actions used by the shared workflows and composite actions moving,
+# and the pinned semantic-release toolchain of the semantic-release action current.
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
     commit-message:
       prefix: "fix(ci)"
+  - package-ecosystem: npm
+    directory: /.github/actions/semantic-release
+    schedule:
+      interval: weekly
+    groups:
+      semantic-release:
+        patterns: ["semantic-release", "@semantic-release/*"]
+    commit-message:
+      prefix: "fix(semantic-release)"
