@@ -41,12 +41,13 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
     # setup-node's own npm cache cannot key on a lock file outside the caller's workspace, so the
-    # npm cache is restored by hand. The lock file only changes together with this action's ref,
-    # which therefore is the cache key.
+    # npm cache is restored by hand. The lock file only changes together with this action's
+    # commit, and github.action_path carries that commit (github.action_ref inside a nested step
+    # names the nested action's ref, not this one's - observed in the pilot).
     - uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
       with:
         path: ~/.npm
-        key: semantic-release-npm-${{ runner.os }}-${{ github.action_ref }}
+        key: semantic-release-npm-${{ runner.os }}-${{ github.action_path }}
         restore-keys: semantic-release-npm-${{ runner.os }}-
     # Installed into the action's own directory, not the caller's workspace: the calling repo
     # needs no package.json, and its working tree stays clean for @semantic-release/git.
