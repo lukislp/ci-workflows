@@ -18,6 +18,12 @@ inputs:
       calling workflow's comment) - they are reported but do not fail the gate.
     required: false
     default: ""
+  allow-advisories:
+    description: >-
+      Comma-separated advisory ids (GHSA-...) that are tolerated - matched against the advisory
+      URL, so a different advisory against the same package still fails the gate.
+    required: false
+    default: ""
   artifact-name:
     description: Name of the uploaded JSON report artifact.
     required: false
@@ -31,6 +37,7 @@ runs:
         SOLUTION: ${{ inputs.solution }}
         FAIL_ON: ${{ inputs.fail-on }}
         ALLOW: ${{ inputs.allow }}
+        ALLOW_ADVISORIES: ${{ inputs.allow-advisories }}
       run: |
         dotnet list "$SOLUTION" package --vulnerable --include-transitive --format json > nuget-vulnerabilities.json
         cat nuget-vulnerabilities.json
@@ -39,27 +46,31 @@ runs:
 
         fail_on = {s.strip() for s in os.environ["FAIL_ON"].split(",") if s.strip()}
         allow = {s.strip().lower() for s in os.environ["ALLOW"].split(",") if s.strip()}
+        allow_adv = [s.strip().lower() for s in os.environ["ALLOW_ADVISORIES"].split(",") if s.strip()]
         data = json.load(open("nuget-vulnerabilities.json"))
 
-        findings = []  # (package id, severity)
+        findings = []  # (package id, severity, advisory url)
         for project in data.get("projects", []):
             for framework in project.get("frameworks", []):
                 for kind in ("topLevelPackages", "transitivePackages"):
                     for package in framework.get(kind, []):
                         for vuln in package.get("vulnerabilities", []):
-                            findings.append((package["id"], vuln.get("severity", "")))
+                            findings.append((package["id"], vuln.get("severity", ""), vuln.get("advisoryurl", "")))
 
-        blocking = sorted({(pkg, sev) for pkg, sev in findings if sev in fail_on and pkg.lower() not in allow})
-        tolerated = sorted({(pkg, sev) for pkg, sev in findings if sev in fail_on and pkg.lower() in allow})
-        other = sorted({(pkg, sev) for pkg, sev in findings if sev not in fail_on})
+        def tolerated_by_list(pkg, url):
+            return pkg.lower() in allow or any(a in url.lower() for a in allow_adv)
 
-        for pkg, sev in tolerated:
-            print(f"::warning::{pkg}: {sev} advisory tolerated via the allow list")
-        for pkg, sev in other:
-            print(f"{pkg}: {sev} advisory (below the gate)")
+        blocking = sorted({(p, s, u) for p, s, u in findings if s in fail_on and not tolerated_by_list(p, u)})
+        tolerated = sorted({(p, s, u) for p, s, u in findings if s in fail_on and tolerated_by_list(p, u)})
+        other = sorted({(p, s, u) for p, s, u in findings if s not in fail_on})
+
+        for pkg, sev, url in tolerated:
+            print(f"::warning::{pkg}: {sev} advisory tolerated ({url})")
+        for pkg, sev, url in other:
+            print(f"{pkg}: {sev} advisory (below the gate) {url}")
         if blocking:
-            for pkg, sev in blocking:
-                print(f"::error::{pkg}: {sev} severity vulnerability")
+            for pkg, sev, url in blocking:
+                print(f"::error::{pkg}: {sev} severity vulnerability {url}")
             sys.exit(1)
         if not findings:
             print("No known vulnerable NuGet packages found.")
