@@ -74,6 +74,15 @@ runs:
         if ! "$SEMANTIC_RELEASE" "${args[@]}" 2>&1 | tee "$log"; then
           grep -q 'no new version is released' "$log" || exit 1
         fi
+        # "The local branch main is behind the remote one, therefore a new version won't be
+        # published." is logged at info level and exits 0: another push landed since the
+        # checkout. Left alone, the caller's release chain would build and roll out an image for
+        # a version that never gets tagged (seen on UnifiProtectDashboard 2026-09-12). Fail here
+        # instead, so the caller's diagnose-and-retry step re-checks out the tip and runs again.
+        if grep -q 'is behind the remote one' "$log"; then
+          echo "::error::the checked-out branch is behind the remote - another push landed since checkout; retry from the branch tip"
+          exit 1
+        fi
         version="$(grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' "$log" | tail -1 | awk '{print $NF}' || true)"
         if [ -n "$version" ]; then
           echo "new_release_published=true" >> "$GITHUB_OUTPUT"
