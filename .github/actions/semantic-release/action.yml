@@ -83,7 +83,7 @@ runs:
           echo "::error::the checked-out branch is behind the remote - another push landed since checkout; retry from the branch tip"
           exit 1
         fi
-        version="$(grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' "$log" | tail -1 | awk '{print $NF}' || true)"
+        version="$(grep -oiE 'the next release version is [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' "$log" | tail -1 | awk '{print $NF}' || true)"
         if [ -n "$version" ]; then
           echo "new_release_published=true" >> "$GITHUB_OUTPUT"
           echo "new_release_version=$version" >> "$GITHUB_OUTPUT"
