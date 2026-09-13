@@ -1,0 +1,32 @@
+# Caller for the shared HACS integration pipeline. Check names in the branch ruleset are
+# "ci / test-hacs-validation", "ci / test-hassfest", "ci / test-lint", "ci / test-unit".
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# One run per PR / per branch tip: a newer push cancels the PR run it supersedes.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: lukislp/ci-workflows/.github/workflows/hacs-ci.yml@SHA # vX.Y.Z
+    # The called workflow narrows these per job (the test jobs run with contents: read).
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      component: my_integration
+      fuzz-script: fuzz/fuzz_something.py
+      release-group: my-integration-release-chain
+    secrets:
+      SEMANTIC_RELEASE_DEPLOY_KEY: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}

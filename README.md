@@ -10,6 +10,7 @@ keeps the pin moving), exactly like any third-party action.
 |---|---|---|
 | `.github/workflows/dependabot-auto-merge.yml` | Merges Dependabot patch/minor PRs once green; brings every open PR that has auto-merge armed (or was opened by a person) back onto the tip after each push to the default branch, hourly as a safety net. | `templates/callers/dependabot-auto-merge.yml` |
 | `.github/workflows/dependabot-lockfiles.yml` | Regenerates NuGet `packages.lock.json` and/or `uv.lock` on Dependabot's own PRs with the CI tool versions and pushes the result back onto the PR branch. | `templates/callers/dependabot-lockfiles.yml` |
+| `.github/workflows/hacs-ci.yml` | The whole pipeline of a Home Assistant custom integration: HACS + hassfest validation, ruff (check + format), pytest with coverage badge, Atheris fuzz pass, then get-version / semantic-release on the default branch. Inputs `component`, `fuzz-script`, `release-group`. | `templates/callers/hacs-ci.yml` |
 
 Both need `AUTOMERGE_TOKEN` (a fine-grained PAT with contents + pull requests write on the
 calling repo): as a repository secret for auto-merge, and additionally as a **Dependabot**
