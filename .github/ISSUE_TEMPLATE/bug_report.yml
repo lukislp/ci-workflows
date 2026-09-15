@@ -1,0 +1,36 @@
+name: Bug report
+description: A reusable workflow or composite action does not behave as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you call, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: component
+    attributes:
+      label: Workflow or action
+      description: "For example: .github/workflows/hacs-ci.yml, or .github/actions/semantic-release"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pinned version
+      description: The tag or commit SHA the caller pins (see the Releases page).
+    validations:
+      required: true
+  - type: input
+    id: caller
+    attributes:
+      label: Calling repository
+      description: Which repository calls it, and a link to the failing run if there is one.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log lines. Please remove tokens and personal data.
+      render: text
