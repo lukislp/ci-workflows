@@ -1,27 +1,65 @@
-name: Dependency review
+name: Dependency review (reusable)
 
-# Thin caller of the shared implementation in lukislp/ci-workflows - the triggers stay here
-# because a reusable workflow cannot declare them for the caller. Compares the base and head
-# dependency graphs of a pull request and fails it when the PR introduces a dependency with a
-# known advisory, which Dependabot alerts would otherwise only report after the merge. The
-# check name in the branch ruleset is "review / dependency-review".
+# Shared implementation of every repo's dependency-review workflow. Dependabot only reports a
+# vulnerable dependency once it is already on the default branch; this job compares the base and
+# head manifests of a pull request and fails before the merge, so a bad bump never lands.
+#
+# PUBLIC REPOSITORIES ONLY. The check reads the dependency graph through the compare API, which
+# is free on public repositories but needs GitHub Advanced Security on private ones - on a
+# private repo without GHAS the action fails with a 403 instead of reviewing anything. Do not
+# add a caller to a private repo.
+#
+# Licence policy is opt-in via `deny-licenses` and off by default: an allow-list fails on every
+# dependency the graph reports as NOASSERTION (common for transitive packages and for any
+# ecosystem whose metadata the graph cannot read), which would block PRs for reasons that have
+# nothing to do with security. A deny-list of the licences a repo actually refuses is the only
+# variant that stays quiet until it has something real to say.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-# One run per PR: a newer push cancels the run it supersedes.
-concurrency:
-  group: dependency-review-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      fail-on-severity:
+        description: Lowest severity that fails the PR (low, moderate, high, critical).
+        type: string
+        required: false
+        default: high
+      comment-summary-in-pr:
+        description: Post the summary as a PR comment (always, on-failure, never). Use never where fork PRs are expected - their token cannot write comments.
+        type: string
+        required: false
+        default: on-failure
+      allow-ghsas:
+        description: Comma-separated GitHub advisory ids to tolerate (e.g. "GHSA-abcd-1234-5679"), each justified in the caller.
+        type: string
+        required: false
+        default: ""
+      deny-licenses:
+        description: Comma-separated licences to refuse (e.g. "AGPL-3.0, GPL-3.0"). Empty = no licence policy, vulnerabilities only.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  review:
-    uses: lukislp/ci-workflows/.github/workflows/dependency-review.yml@809ea750206cf61ae541cbcf5fc2802f685ba044 # v1.4.0
-    # pull-requests: write is what the summary comment needs; the called workflow keeps
-    # contents at read.
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
+      # Required by comment-summary-in-pr; harmless when the caller sets it to never. The caller
+      # has to grant it too - a called workflow can only narrow the token, never widen it.
       pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: ${{ inputs.fail-on-severity }}
+          comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
+          allow-ghsas: ${{ inputs.allow-ghsas }}
+          deny-licenses: ${{ inputs.deny-licenses }}
+          # The first patched version in the summary table, so the fix is visible without
+          # opening the advisory.
+          show-patched-versions: true

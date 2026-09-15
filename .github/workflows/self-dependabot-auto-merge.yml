@@ -1,0 +1,23 @@
+name: Dependabot auto-merge
+
+# This repository's OWN auto-merge, kept separate from the reusable implementation it calls.
+# Same reasoning as self-dependency-review.yml: the file that other repositories call by SHA
+# must stay a reusable workflow, so this repository's triggers live here instead of in it.
+#
+# Needs the AUTOMERGE_TOKEN repository secret (fine-grained PAT, contents + pull requests write).
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, auto_merge_enabled]
+  schedule:
+    - cron: "23 * * * *"
+  push:
+    branches: [main]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  dependabot:
+    uses: ./.github/workflows/dependabot-auto-merge.yml
+    secrets:
+      AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
