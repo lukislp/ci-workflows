@@ -40,7 +40,12 @@ permissions:
 
 jobs:
   refresh:
-    if: github.actor == 'dependabot[bot]'
+    # The PR AUTHOR, not github.actor. On a synchronize event the actor is whoever pushed
+    # last, and the auto-merge workflow's update-stale job rebases open Dependabot PRs with
+    # AUTOMERGE_TOKEN - which made every follow-up run skip this job, leaving the lock files
+    # stale and the PR permanently red with no way to recover. The author never changes, so
+    # this gate is both more reliable and stricter: it still only ever runs on Dependabot PRs.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -107,4 +112,22 @@ jobs:
           git config user.name "lukislp"
           git config user.email "koerber.lukas@t-online.de"
           git commit -m "chore(deps): refresh the lock files after the Dependabot update"
-          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${HEAD_REF}"
+          # Several Dependabot PRs open at once, and update-stale may rebase the branch while
+          # this job runs, so the push can be rejected. Rebase onto the moved branch and retry;
+          # if the manifests themselves moved the rebase conflicts, and failing loudly is right -
+          # the next synchronize run regenerates the lock files from the new tip.
+          remote="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          for attempt in 1 2 3; do
+            if git push "$remote" "HEAD:refs/heads/${HEAD_REF}"; then
+              exit 0
+            fi
+            echo "push rejected - the branch moved, rebasing and retrying ($attempt of 3)"
+            git fetch "$remote" "refs/heads/${HEAD_REF}" || exit 1
+            if ! git rebase FETCH_HEAD; then
+              git rebase --abort || true
+              echo "::error::the PR branch moved in a way this commit cannot rebase onto; the next synchronize run will regenerate the lock files"
+              exit 1
+            fi
+          done
+          echo "::error::the PR branch kept moving; the lock files were not pushed"
+          exit 1
