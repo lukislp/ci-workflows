@@ -1,0 +1,33 @@
+name: Dependency review
+
+# This repository's OWN dependency review, kept separate from the reusable implementation it
+# calls. It uses a relative path, so the version that runs is always the one in the same commit
+# and there is no self-pin to keep in step.
+#
+# Why this file exists at all: every other repository calls
+# .github/workflows/dependency-review.yml by SHA, which only works while that file declares
+# `workflow_call`. Putting this repository's own triggers into that same file turned it into a
+# caller, and a caller cannot be called - every consumer that moved to such a version failed to
+# load the workflow at all, with no jobs and no log to explain it. Add triggers here, never there.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# One run per PR: a newer push cancels the run it supersedes.
+concurrency:
+  group: dependency-review-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The job id stays `review` so the required check keeps the name "review / dependency-review"
+  # that the branch ruleset expects.
+  review:
+    uses: ./.github/workflows/dependency-review.yml
+    # pull-requests: write is what the summary comment needs; the called workflow keeps
+    # contents at read.
+    permissions:
+      contents: read
+      pull-requests: write
