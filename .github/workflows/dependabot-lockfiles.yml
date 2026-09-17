@@ -97,6 +97,29 @@ jobs:
           # Dependabot's own uv.lock output has been unparsable, and `uv lock` refuses to start
           # from a broken file - so resolve from the base branch's lock plus the PR's pyproject.
           git show "origin/$BASE_REF:uv.lock" > uv.lock
+
+          # Pin the project's OWN version to whatever the base branch recorded, before locking.
+          #
+          # Repos using hatch-vcs derive it from `git describe`, so it carries the commit count
+          # and the HEAD sha: "1.14.18.dev136+g7640d79f2.d20260917". uv writes that into uv.lock.
+          # This job then commits, which moves HEAD - so the next run produced a different
+          # version, saw a genuine diff, pushed again and triggered itself. On 2026-09-17 that
+          # ran away in studylife-mcp: three Dependabot PRs at ~100 self-made commits each, a
+          # refresh every 20 seconds, stopping only when the PRs merged. The "already
+          # consistent" guard below cannot catch it - the file really does change every time.
+          #
+          # Reading the value back out of the base lock rather than inventing one keeps the diff
+          # limited to real dependency changes. Empty for repos that do not record their own
+          # package, where the variable is simply never set and nothing changes for them.
+          BASE_VERSION="$(python -c 'import tomllib; n = tomllib.load(open("pyproject.toml", "rb")).get("project", {}).get("name"); l = tomllib.load(open("uv.lock", "rb")); print(next((p.get("version", "") for p in l.get("package", []) if p.get("name") == n), "") if n else "")' 2>/dev/null || true)"
+          if [ -n "$BASE_VERSION" ]; then
+            echo "pinning the project version to $BASE_VERSION while locking"
+            # Deliberately the un-suffixed name: hatch-vcs calls setuptools-scm's get_version()
+            # without a dist_name, so the SETUPTOOLS_SCM_PRETEND_VERSION_FOR_<DIST> form is
+            # never read. Same finding as the Dockerfiles that build these projects.
+            export SETUPTOOLS_SCM_PRETEND_VERSION="$BASE_VERSION"
+          fi
+
           uv lock
       - if: env.HAS_TOKEN == 'true'
         name: Push the refreshed lock files back onto the PR
