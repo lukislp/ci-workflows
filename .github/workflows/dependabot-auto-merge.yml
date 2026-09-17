@@ -40,7 +40,13 @@ jobs:
       - if: env.HAS_TOKEN == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
-        run: gh pr merge --auto --merge "${{ github.event.pull_request.html_url }}"
+        # Squash, not merge. A merge commit carries every commit the branch accumulated into
+        # main - and the lock-file refresh job can add a lot of them. Before v1.5.2 it could
+        # trigger itself, and studylife-mcp ended up with 110 "refresh the lock files" commits
+        # in main, studylife-cli with 71, because those PRs were merged rather than squashed.
+        # One Dependabot update should be one commit in main whatever happened on the branch.
+        # Every repo using this workflow allows squash merges (checked 2026-09-17).
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
       - if: env.HAS_TOKEN != 'true'
         run: echo "AUTOMERGE_TOKEN is not set - leaving this PR for a manual merge"
 
