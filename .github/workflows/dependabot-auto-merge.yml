@@ -27,7 +27,14 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.event_name == 'pull_request_target' && github.event.action != 'auto_merge_enabled' && github.actor == 'dependabot[bot]'
+    # The PR AUTHOR, not github.actor. On a synchronize event the actor is whoever pushed
+    # last, and update-stale below rebases open Dependabot PRs with AUTOMERGE_TOKEN - which
+    # made every follow-up run of this job skip re-confirming auto-merge, leaving PRs stuck
+    # with auto-merge silently unset after their first rebase. Same bug, same fix as
+    # dependabot-lockfiles.yml already applies; this job just never got the backport. The
+    # author never changes, so this gate is both more reliable and stricter: it still only
+    # ever runs on Dependabot PRs.
+    if: github.event_name == 'pull_request_target' && github.event.action != 'auto_merge_enabled' && github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
