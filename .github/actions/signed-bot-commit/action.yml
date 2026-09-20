@@ -1,0 +1,85 @@
+name: Signed bot commit and push
+description: >-
+  Commits whatever is currently modified in the working tree as a bot commit, SSH-signed so it
+  shows "Verified" on GitHub, then pushes with retry (rebasing on top of any out-of-band push in
+  between). No-ops cleanly if there is nothing to commit. Companion to deploy-key-push, which sets
+  up the SSH remote this step pushes over - run that first.
+  Extracted 2026-09-20 from studylife's deploy-bump job after three live failures taught the
+  exact requirements: (1) git's ssh signing backend needs a .pub file next to the private key, a
+  bare private-key path fails with "Couldn't load public key ...: No such file or directory";
+  (2) the committer email must belong to a real GitHub account (e.g. its own
+  "<id>+<user>@users.noreply.github.com" address) or verification comes back "reason: no_user"
+  even with a cryptographically valid signature; (3) set the DEPLOY_SIGNING_KEY-equivalent secret
+  via "gh secret set NAME --body ..." rather than piping through stdin from PowerShell, which
+  corrupted the key content once ("error in libcrypto").
+
+inputs:
+  signing-key:
+    description: >-
+      Private SSH signing key (a dedicated key registered as an account "Signing Key" at
+      github.com/settings/keys, separate from any push-authorizing deploy key). Required.
+    required: true
+  committer-name:
+    description: Git committer name for the bot commit.
+    required: true
+  committer-email:
+    description: >-
+      Git committer email. Must belong to a real GitHub account for the signature to verify
+      (e.g. "<id>+<user>@users.noreply.github.com") - a made-up domain signs fine but shows
+      "reason: no_user" instead of "Verified".
+    required: true
+  commit-message:
+    description: Commit message (subject only; use \n for a body).
+    required: true
+  branch:
+    description: Branch to push to.
+    required: false
+    default: ${{ github.ref_name }}
+
+outputs:
+  committed:
+    description: "\"true\" if there were changes and a commit was made, \"false\" if the working tree was already clean."
+    value: ${{ steps.commit.outputs.committed }}
+
+runs:
+  using: composite
+  steps:
+    - id: commit
+      shell: bash
+      env:
+        SIGNING_KEY: ${{ inputs.signing-key }}
+        COMMITTER_NAME: ${{ inputs.committer-name }}
+        COMMITTER_EMAIL: ${{ inputs.committer-email }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        TARGET_BRANCH: ${{ inputs.branch }}
+      run: |
+        set -eu
+        if git diff --quiet && git diff --cached --quiet; then
+          echo "nothing to commit"
+          echo "committed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        git diff --stat
+        git config user.name "$COMMITTER_NAME"
+        git config user.email "$COMMITTER_EMAIL"
+
+        signing_key="$RUNNER_TEMP/signed_bot_commit_key"
+        printf '%s\n' "$SIGNING_KEY" > "$signing_key"
+        chmod 600 "$signing_key"
+        # git's ssh signing backend loads the *public* key from user.signingkey - a bare private
+        # key path fails with "Couldn't load public key ...: No such file or directory".
+        ssh-keygen -y -f "$signing_key" > "$signing_key.pub"
+        git config gpg.format ssh
+        git config user.signingkey "$signing_key.pub"
+        git config commit.gpgsign true
+
+        git commit -S -am "$COMMIT_MESSAGE"
+        echo "committed=true" >> "$GITHUB_OUTPUT"
+
+        for attempt in 1 2 3; do
+          git push origin "HEAD:$TARGET_BRANCH" && exit 0
+          git fetch origin "$TARGET_BRANCH"
+          git rebase "origin/$TARGET_BRANCH"
+        done
+        echo "::error::could not push after 3 rebase attempts"
+        exit 1
