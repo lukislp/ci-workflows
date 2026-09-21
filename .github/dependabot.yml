@@ -10,6 +10,8 @@ updates:
       interval: weekly
     commit-message:
       prefix: "fix(ci)"
+    reviewers:
+      - "lukislp"
   - package-ecosystem: npm
     directory: /.github/actions/semantic-release
     schedule:
@@ -19,3 +21,5 @@ updates:
         patterns: ["semantic-release", "@semantic-release/*"]
     commit-message:
       prefix: "fix(semantic-release)"
+    reviewers:
+      - "lukislp"
