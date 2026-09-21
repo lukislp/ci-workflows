@@ -15,6 +15,16 @@ name: Dependabot auto-merge (reusable)
 # every push there leaves the open PRs "behind". This brings every non-draft PR that has
 # auto-merge enabled or was opened by a person back onto the tip; a Dependabot PR left for a
 # manual decision (a major bump) is not rebuilt on every push - whoever merges it updates it.
+# It also retries a direct merge for every Dependabot PR that has auto-merge requested: a repo
+# ruleset requiring 1 approving review lets an admin bypass that rule on a direct merge, but
+# GitHub's own `--auto` completion never exercises that bypass - it only fires once the PR's
+# ordinary mergeable state (reviews included) is clean, which never happens on its own. A plain
+# `gh pr merge --squash` still fails normally while required status checks are pending or red
+# (bypass_actors on this ruleset only cover the pull_request rule, not required_status_checks),
+# so retrying it hourly is safe: it's a no-op until checks are actually green, then goes through
+# on the next tick using the same bypass a human already has via the PR page's "Merge without
+# waiting for requirements to be met" checkbox. Confirmed stuck without this: 8 patch/minor PRs
+# on piwatch sat BLOCKED/REVIEW_REQUIRED for 11+ hours with every check green (2026-09-21).
 on:
   workflow_call:
     secrets:
@@ -85,6 +95,9 @@ jobs:
             echo "#$n ($author, auto-merge=$auto): $state"
             if [ "$state" = "BEHIND" ]; then
               gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && echo "  updated onto the default branch" || echo "::warning::could not update #$n"
+            fi
+            if [ "$auto" = "true" ] && [ "$author" = "dependabot[bot]" ]; then
+              gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 && echo "  merged" || echo "  not ready yet"
             fi
           done
       - if: env.HAS_TOKEN != 'true'
