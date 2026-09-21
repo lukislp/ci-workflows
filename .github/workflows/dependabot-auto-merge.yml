@@ -63,8 +63,15 @@ jobs:
         # would (confirmed live 2026-09-21: a direct merge attempt with this token still came
         # back not-mergeable with every check green, no error surfaced since GitHub just
         # evaluates the token's own grants). Approving satisfies the rule the ordinary way
-        # instead, using a permission this token already has.
-        run: gh pr review --approve "${{ github.event.pull_request.html_url }}"
+        # instead, using a permission this token already has. Skip if already approved - this
+        # job re-runs on every synchronize (including update-stale's own update-branch calls),
+        # and a repeat approval from the same account just clutters the PR's timeline for no
+        # benefit (GitHub already counts the first one).
+        run: |
+          review="$(gh pr view "${{ github.event.pull_request.html_url }}" --json reviewDecision --jq .reviewDecision)"
+          if [ "$review" != "APPROVED" ]; then
+            gh pr review --approve "${{ github.event.pull_request.html_url }}"
+          fi
       - if: env.HAS_TOKEN == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
@@ -108,7 +115,10 @@ jobs:
               gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && echo "  updated onto the default branch" || echo "::warning::could not update #$n"
             fi
             if [ "$auto" = "true" ] && [ "$author" = "app/dependabot" ]; then
-              gh pr review "$n" --repo "$REPO" --approve >/dev/null 2>&1
+              review="$(gh pr view "$n" --repo "$REPO" --json reviewDecision --jq .reviewDecision)"
+              if [ "$review" != "APPROVED" ]; then
+                gh pr review "$n" --repo "$REPO" --approve >/dev/null 2>&1
+              fi
               gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 && echo "  merged" || echo "  not ready yet"
             fi
           done
