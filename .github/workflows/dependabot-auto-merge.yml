@@ -96,7 +96,7 @@ jobs:
             if [ "$state" = "BEHIND" ]; then
               gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && echo "  updated onto the default branch" || echo "::warning::could not update #$n"
             fi
-            if [ "$auto" = "true" ] && [ "$author" = "dependabot[bot]" ]; then
+            if [ "$auto" = "true" ] && [ "$author" = "app/dependabot" ]; then
               gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 && echo "  merged" || echo "  not ready yet"
             fi
           done
