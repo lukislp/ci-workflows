@@ -7,15 +7,16 @@ updates:
       - /
       - /.github/actions/*
     schedule:
-      interval: weekly
+      interval: daily
     commit-message:
       prefix: "fix(ci)"
     reviewers:
       - "lukislp"
+    open-pull-requests-limit: 2
   - package-ecosystem: npm
     directory: /.github/actions/semantic-release
     schedule:
-      interval: weekly
+      interval: daily
     groups:
       semantic-release:
         patterns: ["semantic-release", "@semantic-release/*"]
@@ -23,3 +24,4 @@ updates:
       prefix: "fix(semantic-release)"
     reviewers:
       - "lukislp"
+    open-pull-requests-limit: 2
