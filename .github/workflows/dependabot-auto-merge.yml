@@ -4,8 +4,8 @@ name: Dependabot auto-merge (reusable)
 # triggers (pull_request_target, hourly schedule, push to the default branch) and passes
 # AUTOMERGE_TOKEN; everything below runs with the CALLER's event context.
 #
-# auto-merge: merges Dependabot patch and minor updates once every required check is green;
-# majors stay manual. Runs on pull_request_target so the base branch's workflow definition and
+# auto-merge: merges Dependabot patch and minor updates, and Docker digest refreshes of an
+# unchanged tag, once every required check is green; majors stay manual. Runs on pull_request_target so the base branch's workflow definition and
 # the repo secrets apply (a Dependabot-triggered pull_request run gets neither). Merges with
 # AUTOMERGE_TOKEN, a fine-grained PAT (contents + pull requests: write): a merge performed with
 # GITHUB_TOKEN would never start the release workflow, because GitHub does not run workflows for
@@ -59,7 +59,28 @@ jobs:
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - if: env.HAS_TOKEN == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
+      # What counts as routine: a semver patch or minor bump, or a Docker digest refresh - the
+      # same tag, only the pinned sha256 moves (Dependabot titles those "bump python from
+      # `78387bc` to `2f17fc0`"). fetch-metadata reports no update-type for a digest-only bump,
+      # so without this every base-image refresh sat BEHIND until someone merged it by hand
+      # (six of them across five repos on 2026-09-23). A tag change on a docker dependency still
+      # carries a real update-type and is judged by it like any other version bump.
+      - id: kind
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          routine=false
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor) routine=true ;;
+          esac
+          if [ "$ECOSYSTEM" = "docker" ] && [ -z "$UPDATE_TYPE" ]              && printf '%s' "$TITLE" | grep -Eq 'from `[0-9a-f]{7,64}` to `[0-9a-f]{7,64}`'; then
+            routine=true
+            echo "docker digest refresh - treated like a patch bump"
+          fi
+          echo "routine=$routine" >> "$GITHUB_OUTPUT"
+      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
         # A repo ruleset requiring 1 approving review needs an actual review to pass - a
@@ -77,7 +98,7 @@ jobs:
           if [ "$review" != "APPROVED" ]; then
             gh pr review --approve "${{ github.event.pull_request.html_url }}"
           fi
-      - if: env.HAS_TOKEN == 'true' && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
+      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
         # Squash, not merge. A merge commit carries every commit the branch accumulated into
