@@ -34,6 +34,12 @@ on:
       AUTOMERGE_TOKEN:
         description: Dependabot secret used only to push the refreshed lock files back onto the PR branch.
         required: false
+      DEPLOY_SIGNING_KEY:
+        description: >-
+          Dependabot secret holding an SSH signing key registered to the pushing account. Without
+          it the commit below is pushed unsigned, which a required_signatures ruleset rejects -
+          see the signing step for detail.
+        required: false
 
 permissions:
   contents: read
@@ -60,7 +66,22 @@ jobs:
     steps:
       - if: env.HAS_TOKEN != 'true'
         run: echo "AUTOMERGE_TOKEN is not set as a Dependabot secret - lock files are not refreshed automatically"
+      # This job can sit queued long enough for the PR it targets to already be merged (and its
+      # branch deleted) by a fast-moving auto-merge run elsewhere - the checkout below then fails
+      # with "branch ... could not be found", surfacing as a red check for no real reason. Bail
+      # out cleanly instead: GITHUB_TOKEN (read-only, always available) is enough for this check.
       - if: env.HAS_TOKEN == 'true'
+        id: pr_state
+        name: Check the PR is still open
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          state="$(gh pr view "${{ github.event.pull_request.number }}" --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          if [ "$state" != "OPEN" ]; then
+            echo "PR is $state (likely merged while this run was queued) - nothing to refresh"
+          fi
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.head_ref }}
@@ -68,11 +89,11 @@ jobs:
           # cannot be fetched anonymously later, and the push token stays out of this step).
           fetch-depth: 0
           persist-credentials: false
-      - if: env.HAS_TOKEN == 'true' && inputs.dotnet-version != '' && hashFiles('**/packages.lock.json') != ''
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN' && inputs.dotnet-version != '' && hashFiles('**/packages.lock.json') != ''
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: ${{ inputs.dotnet-version }}
-      - if: env.HAS_TOKEN == 'true' && inputs.dotnet-version != '' && hashFiles('**/packages.lock.json') != ''
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN' && inputs.dotnet-version != '' && hashFiles('**/packages.lock.json') != ''
         name: Regenerate every packages.lock.json
         run: |
           set -eu
@@ -81,15 +102,15 @@ jobs:
             echo "restoring $proj"
             dotnet restore "$proj" --force-evaluate -p:RestoreLockedMode=false
           done
-      - if: env.HAS_TOKEN == 'true' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ inputs.uv-version }}
-      - if: env.HAS_TOKEN == 'true' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ inputs.python-version }}
-      - if: env.HAS_TOKEN == 'true' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN' && inputs.uv-version != '' && hashFiles('uv.lock') != ''
         name: Regenerate uv.lock
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -121,7 +142,28 @@ jobs:
           fi
 
           uv lock
-      - if: env.HAS_TOKEN == 'true'
+      # Without this, the commit below goes out unsigned - a required_signatures ruleset then
+      # rejects the whole PR even though the eventual squash-merge commit would itself be signed
+      # (the rule checks every commit already on the PR branch, not just the merge result). A
+      # missing secret is a silent no-op, same as every other optional secret in this job: the
+      # commit is just unsigned, exactly as before this step existed.
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN'
+        name: Configure commit signing
+        env:
+          SIGNING_KEY: ${{ secrets.DEPLOY_SIGNING_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "DEPLOY_SIGNING_KEY is not set - the commit below will be unsigned"
+            exit 0
+          fi
+          key_path="$RUNNER_TEMP/lockfiles_signing_key"
+          printf '%s\n' "$SIGNING_KEY" > "$key_path"
+          chmod 600 "$key_path"
+          ssh-keygen -y -f "$key_path" > "$key_path.pub"
+          git config gpg.format ssh
+          git config user.signingkey "$key_path.pub"
+          git config commit.gpgsign true
+      - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN'
         name: Push the refreshed lock files back onto the PR
         env:
           PUSH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
