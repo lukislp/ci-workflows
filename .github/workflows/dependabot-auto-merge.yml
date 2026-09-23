@@ -18,13 +18,18 @@ name: Dependabot auto-merge (reusable)
 # It also retries a direct merge for every Dependabot PR that has auto-merge requested: a repo
 # ruleset requiring 1 approving review lets an admin bypass that rule on a direct merge, but
 # GitHub's own `--auto` completion never exercises that bypass - it only fires once the PR's
-# ordinary mergeable state (reviews included) is clean, which never happens on its own. A plain
-# `gh pr merge --squash` still fails normally while required status checks are pending or red
-# (bypass_actors on this ruleset only cover the pull_request rule, not required_status_checks),
-# so retrying it hourly is safe: it's a no-op until checks are actually green, then goes through
-# on the next tick using the same bypass a human already has via the PR page's "Merge without
+# ordinary mergeable state (reviews included) is clean, which never happens on its own. The
+# direct merge uses the same bypass a human already has via the PR page's "Merge without
 # waiting for requirements to be met" checkbox. Confirmed stuck without this: 8 patch/minor PRs
 # on piwatch sat BLOCKED/REVIEW_REQUIRED for 11+ hours with every check green (2026-09-21).
+#
+# That bypass is NOT limited to the review rule. An admin token's direct merge also skips
+# required_status_checks (bypass_mode "pull_request" covers every rule of the ruleset), so a
+# plain `gh pr merge --squash` goes through while checks are still pending or already red.
+# Confirmed 2026-09-23: studylife-alexa #103 merged one second after its CI run was queued,
+# studylife-app #46 and studylife-tray #35 merged with a red CI - all four mains were broken
+# by the hourly tick. The job therefore verifies the PR's own checks before every direct merge
+# and never merges a branch it has just moved (its checks are not even queued yet).
 on:
   workflow_call:
     secrets:
@@ -111,13 +116,32 @@ jobs:
               sleep 10
             done
             echo "#$n ($author, auto-merge=$auto): $state"
+            updated=false
             if [ "$state" = "BEHIND" ]; then
-              gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && echo "  updated onto the default branch" || echo "::warning::could not update #$n"
+              gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && { updated=true; echo "  updated onto the default branch"; } || echo "::warning::could not update #$n"
             fi
             if [ "$auto" = "true" ] && [ "$author" = "app/dependabot" ]; then
               review="$(gh pr view "$n" --repo "$REPO" --json reviewDecision --jq .reviewDecision)"
               if [ "$review" != "APPROVED" ]; then
                 gh pr review "$n" --repo "$REPO" --approve >/dev/null 2>&1
+              fi
+              # The direct merge below bypasses required status checks (see the header), so it
+              # must only ever run against a PR whose checks are demonstrably green: not one whose
+              # branch was just moved (checks not queued yet), not one with conflicts, and not one
+              # with any check still pending, failed or cancelled. Anything else waits for the
+              # next tick, which is exactly what the hourly schedule is for.
+              if [ "$updated" = "true" ]; then
+                echo "  branch just updated - checks not started yet, next tick"
+                continue
+              fi
+              if [ "$state" = "DIRTY" ]; then
+                echo "  has conflicts - left for a manual merge"
+                continue
+              fi
+              not_green="$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup --jq '[.statusCheckRollup[] | (.conclusion // .state) | select(. != "SUCCESS" and . != "SKIPPED" and . != "NEUTRAL")] | length')"
+              if [ "$not_green" != "0" ]; then
+                echo "  $not_green check(s) pending or not green - not merging"
+                continue
               fi
               gh pr merge "$n" --repo "$REPO" --squash >/dev/null 2>&1 && echo "  merged" || echo "  not ready yet"
             fi
