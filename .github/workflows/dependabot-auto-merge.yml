@@ -15,6 +15,11 @@ name: Dependabot auto-merge (reusable)
 # every push there leaves the open PRs "behind". This brings every non-draft PR that has
 # auto-merge enabled or was opened by a person back onto the tip; a Dependabot PR left for a
 # manual decision (a major bump) is not rebuilt on every push - whoever merges it updates it.
+# A Dependabot PR WITHOUT auto-merge is first re-classified from its title: the auto-merge job
+# runs once, at creation, under whatever version of this workflow the caller pinned at that
+# moment, and nothing ever re-runs it - so a routine update it did not recognise back then
+# (Docker digest refreshes before v1.7.3) sat forever. Such a PR gets auto-merge enabled on the
+# next tick; a real major still stays manual.
 # It also retries a direct merge for every Dependabot PR that has auto-merge requested: a repo
 # ruleset requiring 1 approving review lets an admin bypass that rule on a direct merge, but
 # GitHub's own `--auto` completion never exercises that bypass - it only fires once the PR's
@@ -130,7 +135,33 @@ jobs:
             set -- $info
             draft=$1; author=$2; auto=$3
             [ "$draft" = "true" ] && continue
-            if [ "$auto" != "true" ] && [ "$author" = "app/dependabot" ]; then continue; fi
+            if [ "$auto" != "true" ] && [ "$author" = "app/dependabot" ]; then
+              # Either the auto-merge job judged this a major, or it judged it under an OLDER
+              # version of this workflow that did not know the update kind yet. It only runs on
+              # pull_request_target - once, at creation - and nothing re-runs it: HouseHoldPlanner
+              # #67 and homelab-autodoc #190 (Docker digest refreshes, opened 2026-09-28 under a
+              # v1.7.1 pin) never got auto-merge although the digest rule had shipped in v1.7.3.
+              # Re-classify from the title, the only input available outside the PR event: a
+              # digest refresh ("from `hex` to `hex`") or a version bump with an unchanged major
+              # is routine and gets auto-merge enabled now. Anything else - a major, a SHA-to-SHA
+              # action bump (fetch-metadata calls that a major too), a group PR - stays a manual
+              # decision exactly as before.
+              title="$(gh pr view "$n" --repo "$REPO" --json title --jq .title)"
+              routine=false
+              if printf '%s' "$title" | grep -Eq 'from `[0-9a-f]{7,64}` to `[0-9a-f]{7,64}`'; then
+                routine=true
+              elif versions="$(printf '%s' "$title" | grep -Eo 'from v?[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]*)? to v?[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]*)?( |$)' | head -1)" && [ -n "$versions" ]; then
+                set -- $versions
+                old_major="${2#v}"; old_major="${old_major%%[.+-]*}"
+                new_major="${4#v}"; new_major="${new_major%%[.+-]*}"
+                [ "$old_major" = "$new_major" ] && routine=true
+              fi
+              if [ "$routine" != "true" ]; then continue; fi
+              echo "#$n ($author): routine update the auto-merge job never picked up - enabling auto-merge"
+              gh pr review "$n" --repo "$REPO" --approve >/dev/null 2>&1 || true
+              gh pr merge --auto --squash "$n" --repo "$REPO" >/dev/null 2>&1 || echo "::warning::could not enable auto-merge on #$n"
+              auto=true
+            fi
             for attempt in 1 2 3 4 5 6; do
               state="$(gh pr view "$n" --repo "$REPO" --json mergeStateStatus --jq .mergeStateStatus)"
               [ "$state" != "UNKNOWN" ] && break
