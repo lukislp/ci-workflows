@@ -117,7 +117,58 @@ jobs:
         run: |
           # Dependabot's own uv.lock output has been unparsable, and `uv lock` refuses to start
           # from a broken file - so resolve from the base branch's lock plus the PR's pyproject.
-          git show "origin/$BASE_REF:uv.lock" > uv.lock
+          #
+          # Restoring the base lock alone silently undoes the update, though. A bump that only
+          # moves a package inside uv.lock - a transitive dependency, or a direct one whose
+          # pyproject range already allows the new version - changes nothing in pyproject.toml,
+          # and `uv lock` then keeps every version the base lock records. Between 2026-09-12 and
+          # 2026-09-30 every such Dependabot PR in studylife-mcp, studylife-ai and github-dashboard
+          # merged as an empty squash, Dependabot re-opened the same bump the next day, and a
+          # CRITICAL PyJWT CVE stayed in the studylife-mcp image while its "fix" PR was green and
+          # merged. So first record which packages Dependabot moved, then ask uv for exactly those
+          # versions. A line scan on purpose, not a TOML parse: Dependabot's file may be the very
+          # broken one this step works around. The project's own package is skipped (hatch-vcs
+          # versions differ per commit, see below); packages Dependabot added or removed are left
+          # to the resolver.
+          git show "origin/$BASE_REF:uv.lock" > "$RUNNER_TEMP/base-uv.lock"
+          UPGRADES="$(python - uv.lock "$RUNNER_TEMP/base-uv.lock" <<'PY'
+          import re, sys, tomllib
+
+          def norm(name):
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+          def versions(path):
+              found, name = {}, None
+              for line in open(path, encoding="utf-8", errors="replace"):
+                  line = line.rstrip("\r\n")
+                  if line == "[[package]]":
+                      name = None
+                      continue
+                  m = re.fullmatch(r'name = "([^"]+)"', line)
+                  if m:
+                      name = norm(m.group(1))
+                      continue
+                  m = re.fullmatch(r'version = "([^"]+)"', line)
+                  if m and name:
+                      found[name] = m.group(1)
+                      name = None
+              return found
+
+          dependabot, base = versions(sys.argv[1]), versions(sys.argv[2])
+          try:
+              own = norm(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])
+          except Exception:
+              own = None
+          print(" ".join(f"--upgrade-package {n}=={v}" for n, v in sorted(dependabot.items())
+                         if n != own and n in base and base[n] != v))
+          PY
+          )"
+          if [ -n "$UPGRADES" ]; then
+            echo "Dependabot moved: $UPGRADES"
+          else
+            echo "Dependabot moved no locked package version (manifest-only change) - resolving from pyproject.toml"
+          fi
+          cp "$RUNNER_TEMP/base-uv.lock" uv.lock
 
           # Pin the project's OWN version to whatever the base branch recorded, before locking.
           #
@@ -141,7 +192,9 @@ jobs:
             export SETUPTOOLS_SCM_PRETEND_VERSION="$BASE_VERSION"
           fi
 
-          uv lock
+          # Word splitting is the point here: one --upgrade-package flag per moved package.
+          # shellcheck disable=SC2086
+          uv lock $UPGRADES
       # Without this, the commit below goes out unsigned - a required_signatures ruleset then
       # rejects the whole PR even though the eventual squash-merge commit would itself be signed
       # (the rule checks every commit already on the PR branch, not just the merge result). A
