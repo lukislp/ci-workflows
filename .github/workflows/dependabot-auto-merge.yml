@@ -187,7 +187,16 @@ jobs:
                 continue
               fi
               if [ "$state" = "DIRTY" ]; then
-                echo "  has conflicts - left for a manual merge"
+                # Dependabot rebases its own PRs on conflict - but only while the branch holds
+                # nothing but its own commits. The lockfiles job and update-branch above add
+                # commits of ours, after which Dependabot leaves a conflicting branch alone for
+                # good (UnifiProtectDashboard #113 and #118, 2026-09-29/10-01: two SkiaSharp bumps
+                # in a row, the second one DIRTY on packages.lock.json until "@dependabot recreate"
+                # was typed by hand). recreate discards the branch and rebuilds the PR from the
+                # current default branch; the comment is idempotent, so repeating it on a later
+                # tick while the PR is still DIRTY is harmless.
+                echo "  has conflicts - asking Dependabot to recreate the PR"
+                gh pr comment "$n" --repo "$REPO" --body "@dependabot recreate" >/dev/null 2>&1 || echo "::warning::could not comment on #$n"
                 continue
               fi
               not_green="$(gh pr view "$n" --repo "$REPO" --json statusCheckRollup --jq '[.statusCheckRollup[] | (.conclusion // .state) | select(. != "SUCCESS" and . != "SKIPPED" and . != "NEUTRAL")] | length')"
