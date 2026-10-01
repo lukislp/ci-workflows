@@ -195,20 +195,26 @@ jobs:
           # Word splitting is the point here: one --upgrade-package flag per moved package.
           # shellcheck disable=SC2086
           uv lock $UPGRADES
-      # Without this, the commit below goes out unsigned - a required_signatures ruleset then
+      # Without this, the commit below would go out unsigned - a required_signatures ruleset then
       # rejects the whole PR even though the eventual squash-merge commit would itself be signed
-      # (the rule checks every commit already on the PR branch, not just the merge result). A
-      # missing secret is a silent no-op, same as every other optional secret in this job: the
-      # commit is just unsigned, exactly as before this step existed.
+      # (the rule checks every commit already on the PR branch, not just the merge result). The
+      # secret is usually stored as a Dependabot secret only, so it is present when Dependabot's
+      # own push triggers this job but absent when a human's update-branch merge does (that run
+      # sees Actions secrets). Without the key the push step below skips the commit with a
+      # warning: a PR that is red for a stale lock file is visible and fixed by one
+      # `@dependabot recreate`, an unsigned commit freezes auto-merge silently (2026-10-01).
       - if: env.HAS_TOKEN == 'true' && steps.pr_state.outputs.state == 'OPEN'
+        id: signing
         name: Configure commit signing
         env:
           SIGNING_KEY: ${{ secrets.DEPLOY_SIGNING_KEY }}
         run: |
           if [ -z "$SIGNING_KEY" ]; then
-            echo "DEPLOY_SIGNING_KEY is not set - the commit below will be unsigned"
+            echo "DEPLOY_SIGNING_KEY is not set - no commit will be pushed from this run"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
           key_path="$RUNNER_TEMP/lockfiles_signing_key"
           printf '%s\n' "$SIGNING_KEY" > "$key_path"
           chmod 600 "$key_path"
@@ -220,11 +226,17 @@ jobs:
         name: Push the refreshed lock files back onto the PR
         env:
           PUSH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          SIGNING_CONFIGURED: ${{ steps.signing.outputs.configured }}
         run: |
           # Only tracked files change here (the lock files); untracked build output stays out.
           git add -u
           if git diff --cached --quiet; then
             echo "lock files already consistent"
+            exit 0
+          fi
+          if [ "$SIGNING_CONFIGURED" != "true" ]; then
+            echo "::warning::lock files changed but DEPLOY_SIGNING_KEY is not available to this run - not pushing an unsigned commit (it would block auto-merge under required_signatures). Comment '@dependabot recreate' on the PR to regenerate them under Dependabot's secrets."
+            git diff --cached --stat
             exit 0
           fi
           git config user.name "lukislp"
