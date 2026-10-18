@@ -35,8 +35,26 @@ name: Dependabot auto-merge (reusable)
 # studylife-app #46 and studylife-tray #35 merged with a red CI - all four mains were broken
 # by the hourly tick. The job therefore verifies the PR's own checks before every direct merge
 # and never merges a branch it has just moved (its checks are not even queued yet).
+#
+# exclude-dependencies: dependencies that must never be merged without a person looking at
+# them, however small the bump (for example a library that talks to real hardware and has to
+# be tried on the device first). A PR that updates any listed dependency - in a grouped PR, any
+# one of the group - is never approved, never gets auto-merge enabled and is never merged
+# directly by either job; it waits for a manual merge like a major. update-stale still keeps
+# such a PR mergeable (update-branch when BEHIND, "@dependabot recreate" when DIRTY) once a
+# person has armed auto-merge on it, so a tested PR does not rot; GitHub's own auto-merge then
+# completes it after that person's approval. With the input empty (the default) nothing changes.
 on:
   workflow_call:
+    inputs:
+      exclude-dependencies:
+        description: >-
+          Dependency names (comma and/or whitespace separated, case-insensitive, exact name
+          match) whose Dependabot PRs are never approved or merged automatically. A grouped PR
+          is skipped as a whole when any of its dependencies is listed. Default: none.
+        type: string
+        required: false
+        default: ""
     secrets:
       AUTOMERGE_TOKEN:
         description: Fine-grained PAT with contents + pull requests write on the calling repo.
@@ -85,7 +103,33 @@ jobs:
             echo "docker digest refresh - treated like a patch bump"
           fi
           echo "routine=$routine" >> "$GITHUB_OUTPUT"
-      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true'
+      # exclude-dependencies (see the header). fetch-metadata lists every dependency of the PR,
+      # all members of a group included, as a comma-separated string.
+      - id: exclude
+        if: inputs.exclude-dependencies != ''
+        env:
+          EXCLUDE: ${{ inputs.exclude-dependencies }}
+          DEPENDENCIES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          set -f
+          hit=""
+          for d in $(printf '%s' "$DEPENDENCIES" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+            for x in $(printf '%s' "$EXCLUDE" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+              if [ "$d" = "$x" ]; then hit="$hit $d"; fi
+            done
+          done
+          if [ -n "$hit" ]; then
+            echo "::notice::excluded dependency in this PR:$hit - no approval, no auto-merge, merge it by hand"
+            echo "excluded=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$DEPENDENCIES" ]; then
+            # Fail safe: with exclusions configured, a PR whose dependencies cannot be read is
+            # not merged blindly.
+            echo "::notice::dependency names unknown - not merging automatically while exclude-dependencies is set"
+            echo "excluded=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "excluded=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true' && steps.exclude.outputs.excluded != 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
         # A repo ruleset requiring 1 approving review needs an actual review to pass - a
@@ -103,7 +147,7 @@ jobs:
           if [ "$review" != "APPROVED" ]; then
             gh pr review --approve "${{ github.event.pull_request.html_url }}"
           fi
-      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true'
+      - if: env.HAS_TOKEN == 'true' && steps.kind.outputs.routine == 'true' && steps.exclude.outputs.excluded != 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
         # Squash, not merge. A merge commit carries every commit the branch accumulated into
@@ -127,14 +171,56 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
           REPO: ${{ github.repository }}
+          EXCLUDE: ${{ inputs.exclude-dependencies }}
         # GitHub computes the merge state lazily after a push, so UNKNOWN is polled for a while;
         # DIRTY (conflicts) cannot be updated automatically.
         run: |
+          exclude_list="$(printf '%s' "$EXCLUDE" | tr ',' ' ' | tr '[:upper:]' '[:lower:]')"
+          # Prints the excluded dependencies a Dependabot PR updates (nothing if none) and fails
+          # when they cannot be determined. fetch-metadata only exists in the PR event, so the
+          # source here is the "updated-dependencies:" block Dependabot writes into every commit
+          # message (one "- dependency-name:" line per dependency, all members of a group
+          # included); the PR title ("bump <name> from ...", "bump <a> and <b>") is the fallback.
+          excluded_deps() {
+            local deps title d x hit=""
+            deps="$(gh api --paginate "repos/$REPO/pulls/$1/commits" --jq '.[].commit.message' \
+              | sed -n 's/^[[:space:]]*-[[:space:]]*dependency-name:[[:space:]]*//p' \
+              | tr -d "\"'\r" | sort -u)"
+            if [ -z "$deps" ]; then
+              title="$(gh pr view "$1" --repo "$REPO" --json title --jq .title)"
+              deps="$(printf '%s' "$title" | sed -nE 's/^.*[Bb]ump(s)? (.+) from .*$/\2/p; s/^.*[Bb]ump(s)? (.+) and (.+)$/\2 \3/p' | grep -v '^the ' || true)"
+            fi
+            [ -n "$deps" ] || return 1
+            set -f
+            for d in $(printf '%s' "$deps" | tr ',' ' ' | tr '[:upper:]' '[:lower:]'); do
+              for x in $exclude_list; do
+                if [ "$d" = "$x" ]; then hit="$hit $d"; fi
+              done
+            done
+            set +f
+            printf '%s' "$hit"
+          }
           for n in $(gh pr list --repo "$REPO" --state open --json number --jq '.[].number'); do
             info="$(gh pr view "$n" --repo "$REPO" --json isDraft,author,autoMergeRequest --jq '"\(.isDraft) \(.author.login) \(.autoMergeRequest != null)"')"
             set -- $info
             draft=$1; author=$2; auto=$3
             [ "$draft" = "true" ] && continue
+            # exclude-dependencies (see the header): never approved, never armed, never merged
+            # here. Fail safe - a PR whose dependencies cannot be read counts as excluded.
+            excluded=false
+            if [ -n "$exclude_list" ] && [ "$author" = "app/dependabot" ]; then
+              if hit="$(excluded_deps "$n")"; then
+                if [ -n "$hit" ]; then excluded=true; fi
+              else
+                hit=" (dependencies could not be determined)"
+                excluded=true
+              fi
+              if [ "$excluded" = "true" ]; then
+                echo "::notice::#$n excluded from auto-merge:$hit - left for a manual merge"
+                # Without auto-merge armed by a person there is nothing to keep up to date.
+                if [ "$auto" != "true" ]; then continue; fi
+              fi
+            fi
             if [ "$auto" != "true" ] && [ "$author" = "app/dependabot" ]; then
               # Either the auto-merge job judged this a major, or it judged it under an OLDER
               # version of this workflow that did not know the update kind yet. It only runs on
@@ -173,6 +259,16 @@ jobs:
               gh api -X PUT "repos/$REPO/pulls/$n/update-branch" >/dev/null && { updated=true; echo "  updated onto the default branch"; } || echo "::warning::could not update #$n"
             fi
             if [ "$auto" = "true" ] && [ "$author" = "app/dependabot" ]; then
+              if [ "$excluded" = "true" ]; then
+                # Armed by a person after testing: keep it mergeable, but the approval and the
+                # merge stay theirs (GitHub's auto-merge completes it once they approved).
+                if [ "$state" = "DIRTY" ]; then
+                  echo "  has conflicts - asking Dependabot to recreate the PR"
+                  gh pr comment "$n" --repo "$REPO" --body "@dependabot recreate" >/dev/null 2>&1 || echo "::warning::could not comment on #$n"
+                fi
+                echo "  excluded dependency - no approval, no direct merge"
+                continue
+              fi
               review="$(gh pr view "$n" --repo "$REPO" --json reviewDecision --jq .reviewDecision)"
               if [ "$review" != "APPROVED" ]; then
                 gh pr review "$n" --repo "$REPO" --approve >/dev/null 2>&1

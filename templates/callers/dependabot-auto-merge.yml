@@ -17,5 +17,9 @@ permissions:
 jobs:
   dependabot:
     uses: lukislp/ci-workflows/.github/workflows/dependabot-auto-merge.yml@SHA # vX.Y.Z
+    # Optional: dependencies whose PRs are never approved or merged automatically (comma and/or
+    # whitespace separated, case-insensitive exact names; a grouped PR is skipped as a whole).
+    # with:
+    #   exclude-dependencies: some-package other-package
     secrets:
       AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
