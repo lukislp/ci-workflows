@@ -133,7 +133,7 @@ jobs:
       # @semantic-release/git's verifyConditions runs `git push --dry-run` even in dry-run mode,
       # so the deploy key is needed here as well.
       - name: Push as the semantic-release deploy key (if configured)
-        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@6f4cdb006224918fd40221eeb54e3d4216f816f9 # v1.8.11
+        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@bcb2de45ddf2d2dfc73b206998344af75b0a30b3 # v1.8.13
         with:
           deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
       - id: semrel
@@ -164,7 +164,7 @@ jobs:
           ref: ${{ inputs.default-branch }}
           fetch-depth: 0
       - name: Push as the semantic-release deploy key (if configured)
-        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@6f4cdb006224918fd40221eeb54e3d4216f816f9 # v1.8.11
+        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@bcb2de45ddf2d2dfc73b206998344af75b0a30b3 # v1.8.13
         with:
           deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
