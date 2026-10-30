@@ -130,6 +130,13 @@ jobs:
           # broken one this step works around. The project's own package is skipped (hatch-vcs
           # versions differ per commit, see below); packages Dependabot added or removed are left
           # to the resolver.
+          #
+          # Packages Dependabot moved DOWN are left to the resolver too. A bump never asks for a
+          # downgrade; it happens because Dependabot's own resolution ignores
+          # [tool.uv] override-dependencies. On 2026-10-30 studylife-ai's langchain-litellm bump
+          # pulled litellm 1.106, which caps filelock <4, and Dependabot moved filelock from 4.2.1
+          # back to 3.32.7 (a high-severity GHSA) despite an override to >=4.2.1. Pinning that
+          # version made `uv lock` unsatisfiable and kept the PR red for good.
           git show "origin/$BASE_REF:uv.lock" > "$RUNNER_TEMP/base-uv.lock"
           UPGRADES="$(python - uv.lock "$RUNNER_TEMP/base-uv.lock" <<'PY'
           import re, sys, tomllib
@@ -154,13 +161,31 @@ jobs:
                       name = None
               return found
 
+          def release(version):
+              # Leading numeric release segment only ("4.2.1rc1" -> (4, 2, 1)); None if absent.
+              m = re.match(r"v?(\d+(?:\.\d+)*)", version)
+              return tuple(int(p) for p in m.group(1).split(".")) if m else None
+
+          def downgrade(new, old):
+              a, b = release(new), release(old)
+              if a is None or b is None:
+                  return False
+              width = max(len(a), len(b))
+              return a + (0,) * (width - len(a)) < b + (0,) * (width - len(b))
+
           dependabot, base = versions(sys.argv[1]), versions(sys.argv[2])
           try:
               own = norm(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])
           except Exception:
               own = None
-          print(" ".join(f"--upgrade-package {n}=={v}" for n, v in sorted(dependabot.items())
-                         if n != own and n in base and base[n] != v))
+          moved = {n: v for n, v in sorted(dependabot.items())
+                   if n != own and n in base and base[n] != v}
+          for n, v in moved.items():
+              if downgrade(v, base[n]):
+                  print(f"Dependabot moved {n} down ({base[n]} -> {v}) - left to the resolver",
+                        file=sys.stderr)
+          print(" ".join(f"--upgrade-package {n}=={v}" for n, v in moved.items()
+                         if not downgrade(v, base[n])))
           PY
           )"
           if [ -n "$UPGRADES" ]; then
