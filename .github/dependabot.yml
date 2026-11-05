@@ -23,8 +23,12 @@ updates:
       codeql-action:
         patterns:
           - "github/codeql-action*"
+  # The semantic-release toolchain sits in tools/, not under .github/actions/: Dependabot's npm
+  # updater has no workflows scope, so the API rejects every pull request that touches files
+  # under .github/ ("The request contains invalid or unauthorized changes",
+  # dependabot/dependabot-core#15237).
   - package-ecosystem: npm
-    directory: /.github/actions/semantic-release
+    directory: /tools/semantic-release
     schedule:
       interval: daily
     groups:

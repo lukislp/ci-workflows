@@ -1,12 +1,12 @@
 name: semantic-release
 description: >-
   Runs semantic-release from a pinned toolchain (semantic-release plus the changelog, git,
-  github and exec plugins; exact versions in this action's package-lock.json, moved by
-  Dependabot) instead of installing them from the npm registry on every run. Exposes the same
-  outputs as the marketplace action it replaces (new_release_published, new_release_version,
-  new_release_git_tag), so callers keep their `steps.<id>.outputs.*` expressions. The release
-  configuration itself stays in the calling repository (.releaserc.json); the tag output assumes
-  the default `v${version}` tag format.
+  github and exec plugins; exact versions in tools/semantic-release/package-lock.json at the
+  repository root, moved by Dependabot) instead of installing them from the npm registry on
+  every run. Exposes the same outputs as the marketplace action it replaces
+  (new_release_published, new_release_version, new_release_git_tag), so callers keep their
+  `steps.<id>.outputs.*` expressions. The release configuration itself stays in the calling
+  repository (.releaserc.json); the tag output assumes the default `v${version}` tag format.
 
 inputs:
   github-token:
@@ -49,17 +49,21 @@ runs:
         path: ~/.npm
         key: semantic-release-npm-${{ runner.os }}-${{ github.action_path }}
         restore-keys: semantic-release-npm-${{ runner.os }}-
-    # Installed into the action's own directory, not the caller's workspace: the calling repo
-    # needs no package.json, and its working tree stays clean for @semantic-release/git.
+    # Installed into the toolchain directory of the action's own checkout, not the caller's
+    # workspace: the calling repo needs no package.json, and its working tree stays clean for
+    # @semantic-release/git. The toolchain lives in tools/semantic-release at the repository root
+    # rather than next to this action.yml, because Dependabot cannot open pull requests for npm
+    # manifests under .github/ (dependabot/dependabot-core#15237); github.action_path carries
+    # the whole repository checkout, so the root is three levels up.
     - shell: bash
-      working-directory: ${{ github.action_path }}
+      working-directory: ${{ github.action_path }}/../../../tools/semantic-release
       run: npm ci --no-audit --no-fund
     - id: run
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
         DRY_RUN: ${{ inputs.dry-run }}
-        SEMANTIC_RELEASE: ${{ github.action_path }}/node_modules/.bin/semantic-release
+        SEMANTIC_RELEASE: ${{ github.action_path }}/../../../tools/semantic-release/node_modules/.bin/semantic-release
       run: |
         set -o pipefail
         args=()
