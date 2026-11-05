@@ -51,7 +51,7 @@ jobs:
 |---|---|
 | `.github/actions/deploy-key-push` | Switch `origin` to SSH with the release deploy key so the following push bypasses the branch ruleset (semantic-release commits, image-tag bumps). |
 | `.github/actions/nuget-severity-gate` | `dotnet list package --vulnerable` for a solution, JSON report as artifact, fails on High/Critical (configurable; tolerated packages or advisory ids via `allow` / `allow-advisories`, each justified in the caller). |
-| `.github/actions/semantic-release` | Runs semantic-release from a pinned, Dependabot-maintained toolchain (semantic-release + changelog/git/github/exec plugins, lock file in the action directory) with the outputs of the marketplace action (`new_release_published` / `new_release_version` / `new_release_git_tag`); `dry-run: true` for the version-only pass. The `.releaserc.json` stays in the caller. |
+| `.github/actions/semantic-release` | Runs semantic-release from a pinned, Dependabot-maintained toolchain (semantic-release + changelog/git/github/exec plugins, lock file in `tools/semantic-release`) with the outputs of the marketplace action (`new_release_published` / `new_release_version` / `new_release_git_tag`); `dry-run: true` for the version-only pass. The `.releaserc.json` stays in the caller. |
 
 ## Templates (copied, not called)
 

@@ -1,7 +1,7 @@
 {
   "name": "ci-workflows-semantic-release",
   "private": true,
-  "description": "Pinned semantic-release toolchain for the shared semantic-release composite action (see action.yml). Not an application package.",
+  "description": "Pinned semantic-release toolchain for the shared semantic-release composite action (.github/actions/semantic-release/action.yml). Kept outside .github/ so Dependabot can open pull requests for it. Not an application package.",
   "devDependencies": {
     "@semantic-release/changelog": "7.0.0",
     "@semantic-release/exec": "7.1.0",
