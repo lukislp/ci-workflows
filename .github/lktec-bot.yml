@@ -1,0 +1,14 @@
+# Policy of lktec-bot for this repository (https://github.com/lukislp/lktec-bot,
+# docs/modules/automerge.md). Read from the default branch only, never from a pull request.
+version: 1
+modules:
+  automerge:
+    enabled: true
+    # patch, minor and digest updates are armed; a major is left to a person.
+    majors: manual
+    # Dependabot bumps the actions inside the reusable workflows here, so pull requests that
+    # change .github/workflows/ are armed like any other (the pilot shows whether GitHub
+    # merges them without the workflows permission).
+    workflow-files: auto
+    method: squash
+    exclude: []
