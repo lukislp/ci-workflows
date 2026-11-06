@@ -8,42 +8,11 @@ keeps the pin moving), exactly like any third-party action.
 
 | Workflow | What it does | Caller |
 |---|---|---|
-| `.github/workflows/dependabot-auto-merge.yml` | Merges Dependabot patch/minor PRs once green; brings every open PR that has auto-merge armed (or was opened by a person) back onto the tip after each push to the default branch, hourly as a safety net. | `templates/callers/dependabot-auto-merge.yml` |
-| `.github/workflows/dependabot-lockfiles.yml` | Regenerates NuGet `packages.lock.json` and/or `uv.lock` on Dependabot's own PRs with the CI tool versions and pushes the result back onto the PR branch. | `templates/callers/dependabot-lockfiles.yml` |
 | `.github/workflows/dependency-review.yml` | Fails a pull request that introduces a dependency with a known advisory, by comparing the base and head dependency graphs - the gap Dependabot alerts only close after the merge. Public repositories only (the graph comparison needs GHAS on private repos). Inputs `fail-on-severity`, `comment-summary-in-pr`, `allow-ghsas`, `deny-licenses`. | `templates/callers/dependency-review.yml` |
 | `.github/workflows/hacs-ci.yml` | The whole pipeline of a Home Assistant custom integration: HACS + hassfest validation, ruff (check + format), pytest with coverage badge, Atheris fuzz pass, then get-version / semantic-release on the default branch. Inputs `component`, `fuzz-script`, `release-group`, and `release` (default `true`; set `false` to skip get-version / semantic-release when the repository releases through another workflow, for example the lktec-bot release module). | `templates/callers/hacs-ci.yml` |
 
-The two Dependabot workflows need `AUTOMERGE_TOKEN` (a fine-grained PAT with contents + pull requests write on the
-calling repo): as a repository secret for auto-merge, and additionally as a **Dependabot**
-secret for the lock-file refresh (Dependabot-triggered `pull_request` runs only see those).
+The Dependabot auto-merge and lock-file reusables were retired; both are now the `automerge` and `lockfiles` modules of the lktec-bot GitHub App (see [lukislp/lktec-bot](https://github.com/lukislp/lktec-bot), `docs/modules/automerge.md` and `docs/modules/lockfiles.md`).
 
-### Excluding dependencies from auto-merge
-
-`dependabot-auto-merge.yml` takes an optional input `exclude-dependencies` for dependencies that
-must never be merged without a person looking at them, however small the bump (for example a
-library that talks to real hardware and has to be tried on the device first):
-
-```yaml
-jobs:
-  dependabot:
-    uses: lukislp/ci-workflows/.github/workflows/dependabot-auto-merge.yml@<sha> # vX.Y.Z
-    with:
-      exclude-dependencies: pymammotion
-    secrets:
-      AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
-```
-
-- Names are separated by commas and/or whitespace, compared case-insensitively and as exact
-  names (`pymammotion` does not match `pymammotion-extra`). Default: empty, which changes nothing.
-- A PR that updates any listed dependency is never approved, never gets auto-merge enabled and is
-  never merged directly - in a grouped PR it is enough for one member of the group to be listed.
-- The PR event reads the dependency names from `dependabot/fetch-metadata`. The hourly / push
-  sweep reads the `updated-dependencies` block Dependabot writes into its commit messages, with
-  the PR title (`bump <name> from ...`) as a fallback. If the names cannot be determined while
-  exclusions are configured, the PR is treated as excluded.
-- Once a person has tested such a PR and armed auto-merge on it, the sweep still keeps it
-  mergeable (update-branch when behind, `@dependabot recreate` on conflicts); the approval stays
-  with that person, and GitHub's own auto-merge completes the PR after it.
 
 ## Composite actions
 
@@ -60,14 +29,6 @@ workflow: `ossf/scorecard-action` publishes results only from a workflow file th
 analysed repository itself.
 
 ## Pinning
-
-```yaml
-jobs:
-  dependabot:
-    uses: lukislp/ci-workflows/.github/workflows/dependabot-auto-merge.yml@<sha> # v1.0.0
-    secrets:
-      AUTOMERGE_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
-```
 
 ```yaml
       - uses: lukislp/ci-workflows/.github/actions/deploy-key-push@<sha> # v1.0.0
