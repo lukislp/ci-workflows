@@ -1,11 +1,10 @@
 name: HACS integration CI/CD
 
-# The one pipeline shared by the Home Assistant custom integrations (studylife-hacs,
+# The one validation pipeline shared by the Home Assistant custom integrations (studylife-hacs,
 # Lagersystem-hacs, gitlab-monitor-hacs): HACS + hassfest validation, ruff, pytest with a
-# coverage badge, an Atheris fuzz pass, then the semantic-release chain on the default branch.
-# Callers pass the component name, the fuzz harness and their release concurrency group; with
-# `release: false` the semantic-release chain (get-version, semantic-release) is skipped for
-# repositories that release through another workflow. The check names seen by the branch ruleset are "<caller job> / <job below>".
+# coverage badge and an Atheris fuzz pass. Callers pass the component name and the fuzz harness.
+# Releases are not part of this workflow: they go through the lktec-bot release module.
+# The check names seen by the branch ruleset are "<caller job> / <job below>".
 on:
   workflow_call:
     inputs:
@@ -19,27 +18,24 @@ on:
         required: false
         default: ""
       release-group:
-        description: Concurrency group that serialises get-version and semantic-release per repo.
+        description: "Deprecated and ignored: the release stage moved to the lktec-bot release module; this input is accepted for one more minor version so that callers passing it keep working."
         type: string
-        required: true
+        required: false
+        default: ""
       release:
-        description: Run the semantic-release chain (get-version, semantic-release) after the tests. Set false when the repository releases through another workflow, for example the lktec-bot release module.
+        description: "Deprecated and ignored: the release stage moved to the lktec-bot release module; this input is accepted for one more minor version so that callers passing `release: false` keep working."
         type: boolean
         required: false
-        default: true
+        default: false
       python-version:
         type: string
         required: false
         default: "3.14"
       default-branch:
+        description: "Deprecated and ignored: it only selected the release checkout; accepted for one more minor version."
         type: string
         required: false
         default: main
-    secrets:
-      SEMANTIC_RELEASE_DEPLOY_KEY:
-        description: Write-enabled deploy key so the release commit bypasses the branch ruleset (optional).
-        required: false
-
 permissions:
   contents: read
 
@@ -116,96 +112,3 @@ jobs:
       - run: python ${{ inputs.fuzz-script }} -max_total_time=30 -rss_limit_mb=1024
         env:
           PYTHONPATH: .
-
-  get-version:
-    needs: [test-hacs-validation, test-hassfest, test-lint, test-unit]
-    if: inputs.release && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: ${{ inputs.release-group }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
-    outputs:
-      published: ${{ steps.semrel.outputs.new_release_published }}
-    steps:
-      # The default branch tip rather than the event SHA: the release must be computed from what
-      # will actually be tagged, even if another push landed in between.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.default-branch }}
-          fetch-depth: 0
-      # @semantic-release/git's verifyConditions runs `git push --dry-run` even in dry-run mode,
-      # so the deploy key is needed here as well.
-      - name: Push as the semantic-release deploy key (if configured)
-        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@ea532e9b173cf0e512c9d54c18886eebd0b0d1ab # v1.8.24
-        with:
-          deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
-      - id: semrel
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@ea532e9b173cf0e512c9d54c18886eebd0b0d1ab # v1.8.24
-        with:
-          dry-run: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: No release needed for this push
-        if: steps.semrel.outputs.new_release_published != 'true'
-        run: |
-          echo "No releasable commits since the last tag (e.g. docs/ci/chore-only) - this is the expected, common case with Conventional Commits, not a failure. semantic-release below skips itself via needs.get-version.outputs.published." | tee -a "$GITHUB_STEP_SUMMARY"
-
-  semantic-release:
-    needs: [get-version]
-    if: inputs.release && github.event_name == 'push' && needs.get-version.outputs.published == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: ${{ inputs.release-group }}
-      cancel-in-progress: false
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.default-branch }}
-          fetch-depth: 0
-      - name: Push as the semantic-release deploy key (if configured)
-        uses: lukislp/ci-workflows/.github/actions/deploy-key-push@ea532e9b173cf0e512c9d54c18886eebd0b0d1ab # v1.8.24
-        with:
-          deploy-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: ${{ inputs.python-version }}
-      # The coverage badge from test-unit is committed with the release (an @semantic-release/git
-      # asset in the caller's .releaserc.json).
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: coverage-badge
-          path: coverage-artifact
-      - run: mkdir -p .github/badges && mv coverage-artifact/coverage-badge.json .github/badges/coverage.json
-      - id: semrel
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@ea532e9b173cf0e512c9d54c18886eebd0b0d1ab # v1.8.24
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-      # Retry once for the narrow window where an out-of-band push landed between this job's
-      # checkout and its own push (the concurrency group serialises this workflow's own runs, so
-      # only a genuinely external push can cause it).
-      - if: steps.semrel.outcome == 'failure'
-        name: "Diagnose before retrying (expected: an out-of-band push landed since checkout)"
-        env:
-          DEFAULT_BRANCH: ${{ inputs.default-branch }}
-        run: |
-          git fetch origin "$DEFAULT_BRANCH"
-          BEFORE_SHA="$(git rev-parse HEAD)"
-          AFTER_SHA="$(git rev-parse "origin/$DEFAULT_BRANCH")"
-          if [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
-            echo "origin/$DEFAULT_BRANCH moved since checkout ($BEFORE_SHA -> $AFTER_SHA) - this matches the out-of-band-push race this retry is designed for."
-          else
-            echo "::warning::origin/$DEFAULT_BRANCH did NOT move since checkout - this failure is likely NOT the expected out-of-band-push race. Retrying anyway, but check the semantic-release log above for the real cause before assuming this is just a race."
-          fi
-          git checkout -B "$DEFAULT_BRANCH" "origin/$DEFAULT_BRANCH"
-      - if: steps.semrel.outcome == 'failure'
-        uses: lukislp/ci-workflows/.github/actions/semantic-release@ea532e9b173cf0e512c9d54c18886eebd0b0d1ab # v1.8.24
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -3,8 +3,6 @@ name: Release
 # ci-workflows releases itself through the lktec-bot release module (a reusable workflow of
 # lukislp/lktec-bot). Tags/releases created here are exactly what every consumer repo's `uses:
 # lukislp/ci-workflows/...@<sha> # vX.Y.Z` pin points at. The rules live in .github/lktec-bot.yml.
-# The semantic-release and deploy-key-push composite actions stay in this repository because
-# caller repositories still use them; this workflow no longer does.
 on:
   push:
     branches: [main]

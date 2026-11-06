@@ -13,7 +13,7 @@ body:
     id: component
     attributes:
       label: Workflow or action
-      description: "For example: .github/workflows/hacs-ci.yml, or .github/actions/semantic-release"
+      description: "For example: .github/workflows/hacs-ci.yml, or .github/actions/nuget-severity-gate"
     validations:
       required: true
   - type: input
