@@ -17,25 +17,10 @@ on:
         type: string
         required: false
         default: ""
-      release-group:
-        description: "Deprecated and ignored: the release stage moved to the lktec-bot release module; this input is accepted for one more minor version so that callers passing it keep working."
-        type: string
-        required: false
-        default: ""
-      release:
-        description: "Deprecated and ignored: the release stage moved to the lktec-bot release module; this input is accepted for one more minor version so that callers passing `release: false` keep working."
-        type: boolean
-        required: false
-        default: false
       python-version:
         type: string
         required: false
         default: "3.14"
-      default-branch:
-        description: "Deprecated and ignored: it only selected the release checkout; accepted for one more minor version."
-        type: string
-        required: false
-        default: main
 permissions:
   contents: read
 
