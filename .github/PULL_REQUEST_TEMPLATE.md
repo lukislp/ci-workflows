@@ -17,5 +17,5 @@
 
 ## After merging
 
-<!-- Versions here are tagged by hand, they are not cut by semantic-release. If consumers need this
-     change, say which tag it should go into and which repositories have to move their pin. -->
+<!-- Versions here are cut by the lktec-bot release module from the commit types. If consumers need
+     this change, say which repositories have to move their pin. -->
