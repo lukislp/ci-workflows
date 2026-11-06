@@ -1,5 +1,4 @@
-# Keeps the SHA pins of the actions used by the shared workflows and composite actions moving,
-# and the pinned semantic-release toolchain of the semantic-release action current.
+# Keeps the SHA pins of the actions used by the shared workflows and composite actions moving.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -23,19 +22,3 @@ updates:
       codeql-action:
         patterns:
           - "github/codeql-action*"
-  # The semantic-release toolchain sits in tools/, not under .github/actions/: Dependabot's npm
-  # updater has no workflows scope, so the API rejects every pull request that touches files
-  # under .github/ ("The request contains invalid or unauthorized changes",
-  # dependabot/dependabot-core#15237).
-  - package-ecosystem: npm
-    directory: /tools/semantic-release
-    schedule:
-      interval: daily
-    groups:
-      semantic-release:
-        patterns: ["semantic-release", "@semantic-release/*"]
-    commit-message:
-      prefix: "fix(semantic-release)"
-    reviewers:
-      - "lukislp"
-    open-pull-requests-limit: 5

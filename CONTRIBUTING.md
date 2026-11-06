@@ -18,7 +18,7 @@ change here lands in every pipeline that pins it.
 
 - **Conventional Commits.** Commit and pull-request titles follow Conventional Commits
   (`feat:`, `fix:`, `docs:`, `ci:`, and so on) - the same convention the consuming repositories
-  use, where it drives semantic-release. Squash-merge keeps the PR title as the commit message.
+  use, where the lktec-bot release module derives the version from them. Squash-merge keeps the PR title as the commit message.
 - **Green required checks.** `validate` and `review / dependency-review` are required; a red one
   blocks the merge. [`.github/workflows/validate.yml`](.github/workflows/validate.yml) parses every
   `*.yml` under `.github/` and `templates/` and fails if a file is not valid YAML, if an external
@@ -41,8 +41,7 @@ change here lands in every pipeline that pins it.
 
 - `.github/workflows/` - the reusable workflows (`workflow_call`): `dependency-review.yml`, `hacs-ci.yml`, plus this repository's own
   `scorecard.yml` and `validate.yml`.
-- `.github/actions/` - the composite actions: `deploy-key-push`, `nuget-severity-gate`,
-  `semantic-release`.
+- `.github/actions/` - the composite action `nuget-severity-gate`.
 - `templates/` - caller stubs and the copied Scorecard workflow.
 
 ## Trying a change before it is tagged
