@@ -53,9 +53,14 @@ workflow at your branch's commit SHA and let that repository's pipeline run befo
 
 ## Releasing
 
-Releases here are tagged by hand - there is no `.releaserc.json` and no release workflow. After a
-change merges, push a new `vX.Y.Z` tag following semantic versioning: a new or changed input is a
-minor, a removed or renamed one a major. Consumers resolve the commit SHA and keep the
+Releases here are cut by the lktec-bot release module: [`release.yml`](.github/workflows/release.yml)
+calls the reusable release workflow of `lukislp/lktec-bot` on every push to `main`, and the
+lktec-bot App creates the `vX.Y.Z` tag and the GitHub release when the Conventional Commits since
+the last tag call for one (breaking change major, `feat` minor, `fix`/`perf`/`revert` patch,
+everything else nothing). The rules live in [`.github/lktec-bot.yml`](.github/lktec-bot.yml); the
+repository secrets are `LKTEC_BOT_APP_ID` and `LKTEC_BOT_PRIVATE_KEY`. The tag is created through
+the API and carries no signature. So the commit type decides the version: a new or changed input is
+a `feat`, a removed or renamed one a breaking change. Consumers resolve the commit SHA and keep the
 `# vX.Y.Z` comment next to it, so the tag is documentation for humans and Dependabot rather than
 the thing resolved at run time.
 
