@@ -1,8 +1,6 @@
 name: Dependabot auto-merge
 
-# This repository's OWN auto-merge, kept separate from the reusable implementation
-# dependabot-auto-merge.yml that other repositories still call by SHA. Since the pilot of
-# lktec-bot it calls the automerge workflow of lukislp/lktec-bot: the App approves routine
+# This repository's own auto-merge. It calls the automerge workflow of lukislp/lktec-bot: the App approves routine
 # Dependabot updates and enables auto-merge, GitHub merges once the checks are green. The
 # policy is .github/lktec-bot.yml on the default branch (docs/modules/automerge.md of lktec-bot).
 #

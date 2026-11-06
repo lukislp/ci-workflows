@@ -39,8 +39,7 @@ change here lands in every pipeline that pins it.
 
 ## Repository layout
 
-- `.github/workflows/` - the reusable workflows (`workflow_call`): `dependabot-auto-merge.yml`,
-  `dependabot-lockfiles.yml`, `dependency-review.yml`, `hacs-ci.yml`, plus this repository's own
+- `.github/workflows/` - the reusable workflows (`workflow_call`): `dependency-review.yml`, `hacs-ci.yml`, plus this repository's own
   `scorecard.yml` and `validate.yml`.
 - `.github/actions/` - the composite actions: `deploy-key-push`, `nuget-severity-gate`,
   `semantic-release`.
