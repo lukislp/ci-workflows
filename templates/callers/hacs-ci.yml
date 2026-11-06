@@ -28,5 +28,6 @@ jobs:
       component: my_integration
       fuzz-script: fuzz/fuzz_something.py
       release-group: my-integration-release-chain
+      # release: false  # skip get-version / semantic-release when another workflow releases
     secrets:
       SEMANTIC_RELEASE_DEPLOY_KEY: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}

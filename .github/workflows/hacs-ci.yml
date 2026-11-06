@@ -3,8 +3,9 @@ name: HACS integration CI/CD
 # The one pipeline shared by the Home Assistant custom integrations (studylife-hacs,
 # Lagersystem-hacs, gitlab-monitor-hacs): HACS + hassfest validation, ruff, pytest with a
 # coverage badge, an Atheris fuzz pass, then the semantic-release chain on the default branch.
-# Callers pass the component name, the fuzz harness and their release concurrency group; the
-# check names seen by the branch ruleset are "<caller job> / <job below>".
+# Callers pass the component name, the fuzz harness and their release concurrency group; with
+# `release: false` the semantic-release chain (get-version, semantic-release) is skipped for
+# repositories that release through another workflow. The check names seen by the branch ruleset are "<caller job> / <job below>".
 on:
   workflow_call:
     inputs:
@@ -21,6 +22,11 @@ on:
         description: Concurrency group that serialises get-version and semantic-release per repo.
         type: string
         required: true
+      release:
+        description: Run the semantic-release chain (get-version, semantic-release) after the tests. Set false when the repository releases through another workflow, for example the lktec-bot release module.
+        type: boolean
+        required: false
+        default: true
       python-version:
         type: string
         required: false
@@ -113,7 +119,7 @@ jobs:
 
   get-version:
     needs: [test-hacs-validation, test-hassfest, test-lint, test-unit]
-    if: github.event_name == 'push'
+    if: inputs.release && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -148,7 +154,7 @@ jobs:
 
   semantic-release:
     needs: [get-version]
-    if: github.event_name == 'push' && needs.get-version.outputs.published == 'true'
+    if: inputs.release && github.event_name == 'push' && needs.get-version.outputs.published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
