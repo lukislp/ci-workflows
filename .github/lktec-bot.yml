@@ -11,6 +11,9 @@ modules:
     # merges them without the workflows permission).
     workflow-files: auto
     method: squash
+    # Merge a pull request GitHub refuses to arm because it is already mergeable (merge verb,
+    # lktec-bot v0.9.0): only that case, bound to the approved head, never an admin merge.
+    merge-ready: true
     exclude: []
   # Tags and publishes a release from the Conventional Commits on the default branch (see
   # docs/modules/release.md in lukislp/lktec-bot).
